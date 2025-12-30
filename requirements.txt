@@ -4,3 +4,5 @@ requests
 uncurl
 numpy
 protobuf
+imageio==2.9.0
+decorator<5,>=4.0.2
