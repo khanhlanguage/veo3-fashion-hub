@@ -5,36 +5,35 @@ import time
 import os
 import shutil
 import re
+import PIL.Image
 
-# --- 🛠️ MONKEY PATCH: SỬA LỖI MOVIEPY TRÊN SERVER MỚI ---
-# Đoạn này giúp MoviePy 1.0.3 chạy được với FFmpeg v5/v6 mà không bị lỗi Rotation
+# --- 🛠️ VÁ LỖI KÉP (DOUBLE MONKEY PATCH) ---
+
+# 1. VÁ LỖI PILLOW (Sửa lỗi 'ANTIALIAS' trên Server mới)
+if not hasattr(PIL.Image, 'ANTIALIAS'):
+    PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
+
+# 2. VÁ LỖI MOVIEPY (Sửa lỗi Rotation với FFmpeg mới)
 from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
 def ffmpeg_parse_infos_patched(self):
-    """Phiên bản vá lỗi của hàm đọc thông tin video"""
     try:
-        # Thử dùng hàm gốc
         return self.original_parse_infos()
     except Exception:
-        # Nếu lỗi (do FFmpeg mới), ta tự gán thông số mặc định an toàn
+        # Trả về thông số an toàn nếu FFmpeg không đọc được
         return {
-            'duration': 0.0, 
-            'video_found': True, 
-            'video_size': [1080, 1920], 
-            'video_fps': 24, 
-            'audio_found': False, 
-            'audio_fps': 44100
+            'duration': 10.0, 'video_found': True, 'video_size': [1080, 1920],
+            'video_fps': 24, 'audio_found': False, 'audio_fps': 44100
         }
 
-# Áp dụng bản vá
 if not hasattr(FFMPEG_VideoReader, 'original_parse_infos'):
     FFMPEG_VideoReader.original_parse_infos = FFMPEG_VideoReader.parse_infos
     FFMPEG_VideoReader.parse_infos = ffmpeg_parse_infos_patched
+
 # -------------------------------------------------------
 
-# Import các thư viện xử lý video sau khi đã vá lỗi
 from moviepy.editor import VideoFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 
-# --- 1. CẤU HÌNH & GIAO DIỆN (THEME TRẮNG HIỆN ĐẠI) ---
+# --- CẤU HÌNH & GIAO DIỆN ---
 st.set_page_config(page_title="VEO3 UGC Studio", page_icon="✨", layout="wide")
 
 st.markdown("""
@@ -50,7 +49,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- 2. DỮ LIỆU MẪU ---
+# --- DATA ---
 HOOKS = [
     "OMG this shirt is Priceless", "This shirt goes way too hard...",
     "So you're wearing that to the next family party??", "The hardest shirt doesn't exis...",
@@ -61,7 +60,7 @@ SCENARIOS = {
     "Nam": ["Natural walk", "Drinking coffee", "Adjusting shirt"]
 }
 
-# --- 3. SIDEBAR ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header("⚙️ Cấu Hình")
     with st.expander("ℹ️ Hướng dẫn lấy cURL"):
@@ -71,7 +70,7 @@ with st.sidebar:
     curl_input = st.text_area("Dán lệnh cURL:", height=250)
     trim_sec = st.slider("Cắt bỏ giây đầu", 0.0, 5.0, 2.0)
 
-# --- 4. GIAO DIỆN CHÍNH ---
+# --- MAIN UI ---
 st.title("✨ VEO3 UGC STUDIO")
 st.markdown("---")
 col1, col2, col3 = st.columns([1, 1, 1])
@@ -94,15 +93,13 @@ with col3:
 st.markdown("###")
 generate_btn = st.button("🚀 TẠO VIDEO MAGIC")
 
-# --- 5. LOGIC XỬ LÝ ---
+# --- LOGIC ---
 def process_veo3_mock(curl_cmd, image_file, prompt_text):
     """Giả lập tải video để test lỗi Edit"""
     video_paths = []
     if not os.path.exists("temp"): os.makedirs("temp")
     
-    # Video mẫu (con thỏ)
     sample_url = "https://www.w3schools.com/html/mov_bbb.mp4"
-    
     for i in range(2):
         r = requests.get(sample_url)
         path = f"temp/raw_clip_{i}.mp4"
@@ -115,7 +112,7 @@ def edit_video_pipeline(video_paths, hook, trim_duration, speed_factor):
     try:
         for path in video_paths:
             clip = VideoFileClip(path)
-            # Fix lỗi Duration=0 do MonkeyPatch nếu có
+            # Fix lỗi Duration=0
             if clip.duration is None or clip.duration < 0.1: clip.duration = 10.0 
             
             if clip.duration > trim_duration:
@@ -154,7 +151,7 @@ def edit_video_pipeline(video_paths, hook, trim_duration, speed_factor):
     except Exception as e:
         st.error(f"Lỗi Edit Video: {e}")
         import traceback
-        st.text(traceback.format_exc()) # Hiện chi tiết lỗi để debug
+        st.text(traceback.format_exc())
         return None
 
 if generate_btn:
