@@ -1,0 +1,7 @@
+streamlit
+moviepy
+requests
+uncurl
+protobuf
+numpy
+shutil
