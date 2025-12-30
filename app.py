@@ -7,35 +7,42 @@ import shutil
 import re
 import PIL.Image
 
-# --- 🛠️ VÁ LỖI KÉP (DOUBLE MONKEY PATCH) ---
+# --- 🛠️ VÁ LỖI THÔNG MINH (SMART MONKEY PATCH) ---
 
-# 1. VÁ LỖI PILLOW (Sửa lỗi 'ANTIALIAS' trên Server mới)
+# 1. VÁ LỖI PILLOW (Cho Python 3.13+)
 if not hasattr(PIL.Image, 'ANTIALIAS'):
     PIL.Image.ANTIALIAS = PIL.Image.LANCZOS
 
-# 2. VÁ LỖI MOVIEPY (Sửa lỗi Rotation với FFmpeg mới)
-from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
-def ffmpeg_parse_infos_patched(self):
-    try:
-        return self.original_parse_infos()
-    except Exception:
-        # Trả về thông số an toàn nếu FFmpeg không đọc được
-        return {
-            'duration': 10.0, 'video_found': True, 'video_size': [1080, 1920],
-            'video_fps': 24, 'audio_found': False, 'audio_fps': 44100
-        }
+# 2. VÁ LỖI MOVIEPY (Chỉ vá nếu là bản 1.0.3)
+try:
+    from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
+    
+    # Kiểm tra xem có hàm parse_infos để vá không
+    if hasattr(FFMPEG_VideoReader, 'parse_infos'):
+        def ffmpeg_parse_infos_patched(self):
+            try:
+                return self.original_parse_infos()
+            except Exception:
+                # Trả về thông số mặc định nếu FFmpeg lỗi
+                return {
+                    'duration': 10.0, 'video_found': True, 'video_size': [1080, 1920],
+                    'video_fps': 24, 'audio_found': False, 'audio_fps': 44100
+                }
 
-if not hasattr(FFMPEG_VideoReader, 'original_parse_infos'):
-    FFMPEG_VideoReader.original_parse_infos = FFMPEG_VideoReader.parse_infos
-    FFMPEG_VideoReader.parse_infos = ffmpeg_parse_infos_patched
+        # Áp dụng bản vá an toàn
+        if not hasattr(FFMPEG_VideoReader, 'original_parse_infos'):
+            FFMPEG_VideoReader.original_parse_infos = FFMPEG_VideoReader.parse_infos
+            FFMPEG_VideoReader.parse_infos = ffmpeg_parse_infos_patched
+except Exception as e:
+    # Nếu là bản mới quá thì bỏ qua, không vá nữa
+    print(f"Skipping MoviePy patch: {e}")
 
 # -------------------------------------------------------
 
 from moviepy.editor import VideoFileClip, concatenate_videoclips, TextClip, CompositeVideoClip, ColorClip
 
-# --- CẤU HÌNH & GIAO DIỆN ---
+# --- CẤU HÌNH ---
 st.set_page_config(page_title="VEO3 UGC Studio", page_icon="✨", layout="wide")
-
 st.markdown("""
     <style>
     .stApp { background-color: #FFFFFF; color: #000000; }
@@ -49,7 +56,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# --- DATA ---
+# --- DỮ LIỆU ---
 HOOKS = [
     "OMG this shirt is Priceless", "This shirt goes way too hard...",
     "So you're wearing that to the next family party??", "The hardest shirt doesn't exis...",
@@ -60,51 +67,40 @@ SCENARIOS = {
     "Nam": ["Natural walk", "Drinking coffee", "Adjusting shirt"]
 }
 
-# --- SIDEBAR ---
+# --- GIAO DIỆN ---
 with st.sidebar:
     st.header("⚙️ Cấu Hình")
-    with st.expander("ℹ️ Hướng dẫn lấy cURL"):
-        st.write("1. Vào VEO3 -> F12 -> Network.")
-        st.write("2. Tạo video -> Chuột phải dòng đầu tiên -> Copy as cURL (bash).")
-    
-    curl_input = st.text_area("Dán lệnh cURL:", height=250)
+    curl_input = st.text_area("Dán lệnh cURL (Lấy từ VEO3 -> F12):", height=250)
     trim_sec = st.slider("Cắt bỏ giây đầu", 0.0, 5.0, 2.0)
 
-# --- MAIN UI ---
 st.title("✨ VEO3 UGC STUDIO")
-st.markdown("---")
 col1, col2, col3 = st.columns([1, 1, 1])
 
 with col1:
-    st.subheader("1. Tài nguyên")
-    uploaded_file = st.file_uploader("Upload ảnh", type=['jpg', 'png', 'webp'])
-
+    uploaded_file = st.file_uploader("1. Upload ảnh", type=['jpg', 'png', 'webp'])
 with col2:
-    st.subheader("2. Cài đặt")
-    gender = st.selectbox("Giới tính", ["Nữ", "Nam"])
+    gender = st.selectbox("2. Giới tính", ["Nữ", "Nam"])
     scenario = st.selectbox("Kịch bản", SCENARIOS[gender])
-    speed_option = st.select_slider("Tốc độ", options=["1.0x", "1.2x", "1.5x", "2.0x"], value="1.2x")
-    speed_val = float(speed_option.replace("x", ""))
-
+    speed_val = float(st.select_slider("Tốc độ", ["1.0x", "1.2x", "1.5x", "2.0x"], value="1.2x").replace("x",""))
 with col3:
-    st.subheader("3. Marketing")
-    hook_text = st.selectbox("Chọn Hook", HOOKS)
+    hook_text = st.selectbox("3. Chọn Hook", HOOKS)
 
-st.markdown("###")
 generate_btn = st.button("🚀 TẠO VIDEO MAGIC")
 
 # --- LOGIC ---
 def process_veo3_mock(curl_cmd, image_file, prompt_text):
-    """Giả lập tải video để test lỗi Edit"""
-    video_paths = []
     if not os.path.exists("temp"): os.makedirs("temp")
-    
+    video_paths = []
+    # Video mẫu để test
     sample_url = "https://www.w3schools.com/html/mov_bbb.mp4"
     for i in range(2):
-        r = requests.get(sample_url)
-        path = f"temp/raw_clip_{i}.mp4"
-        with open(path, 'wb') as f: f.write(r.content)
-        video_paths.append(path)
+        try:
+            r = requests.get(sample_url, timeout=10)
+            path = f"temp/raw_clip_{i}.mp4"
+            with open(path, 'wb') as f: f.write(r.content)
+            video_paths.append(path)
+        except Exception as e:
+            st.error(f"Lỗi tải video mẫu: {e}")
     return video_paths
 
 def edit_video_pipeline(video_paths, hook, trim_duration, speed_factor):
@@ -112,13 +108,13 @@ def edit_video_pipeline(video_paths, hook, trim_duration, speed_factor):
     try:
         for path in video_paths:
             clip = VideoFileClip(path)
-            # Fix lỗi Duration=0
-            if clip.duration is None or clip.duration < 0.1: clip.duration = 10.0 
+            # Fix lỗi duration = 0
+            if clip.duration is None or clip.duration < 0.1: clip.duration = 10.0
             
             if clip.duration > trim_duration:
                 clip = clip.subclip(trim_duration, clip.duration)
             
-            # Resize & Crop 9:16
+            # Crop 9:16
             w, h = clip.size
             target_ratio = 9/16
             if w/h > target_ratio:
@@ -131,14 +127,22 @@ def edit_video_pipeline(video_paths, hook, trim_duration, speed_factor):
             clip = clip.resize(height=1920)
             clips.append(clip)
 
+        if not clips: return None
+
         final_clip = concatenate_videoclips(clips, method="compose")
         final_clip = final_clip.speedx(speed_factor)
         
         # Text Overlay
         box_w, box_h = 900, 250
         color_clip = ColorClip(size=(box_w, box_h), color=(0,0,0)).set_opacity(0.8)
-        txt_clip = TextClip(hook, fontsize=70, color='white', method='caption', size=(box_w-40, None), align='center')
         
+        # Dùng try-catch cho TextClip vì dễ lỗi font
+        try:
+            txt_clip = TextClip(hook, fontsize=70, color='white', method='caption', size=(box_w-40, None), align='center')
+        except:
+            # Fallback nếu lỗi font: Dùng font mặc định
+            txt_clip = TextClip(hook, fontsize=70, color='white', size=(box_w-40, None), align='center')
+
         textbox = CompositeVideoClip([color_clip.set_position('center'), txt_clip.set_position('center')], size=(box_w, box_h))
         final_video = CompositeVideoClip([final_clip, textbox.set_position(('center', 0.2), relative=True).set_duration(final_clip.duration)])
         
@@ -150,8 +154,6 @@ def edit_video_pipeline(video_paths, hook, trim_duration, speed_factor):
 
     except Exception as e:
         st.error(f"Lỗi Edit Video: {e}")
-        import traceback
-        st.text(traceback.format_exc())
         return None
 
 if generate_btn:
