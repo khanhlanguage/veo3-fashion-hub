@@ -4,3 +4,4 @@ requests
 uncurl
 numpy
 protobuf
+Pillow==9.5.0
